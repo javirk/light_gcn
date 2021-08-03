@@ -1,5 +1,5 @@
 model:
-  input_features: 4
+  input_features: 6
   output_features: 1
 
 train:

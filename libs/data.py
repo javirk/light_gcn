@@ -24,6 +24,7 @@ class PlanarDataset(Dataset):
 
         features = torch.cat([o, d]).unsqueeze(0)
         features = features.repeat(data.num_nodes, 1)
+        features = torch.cat([data.pos, features], dim=1)
 
         # Compute the distances (y). This is a shorthand for the cross product, which is not defined in 2D
         dirs = d.unsqueeze(0).repeat(data.num_nodes, 1)
