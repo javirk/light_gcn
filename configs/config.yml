@@ -1,0 +1,17 @@
+model:
+  input_features: 4
+  output_features: 1
+
+train:
+  epochs: 100
+  batch_size: 64
+
+# Optimizer:
+
+optimizer: sgd
+optimizer_kwargs:
+   lr: 0.005
+   weight_decay: 0.0001
+   momentum: 0.9
+   nesterov: False
+scheduler: poly
