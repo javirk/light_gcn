@@ -1,6 +1,7 @@
 import os
 import torch
 import torch.nn as nn
+
 import argparse
 from torch_geometric.data import DataLoader
 from libs.model import Model
@@ -21,8 +22,6 @@ def main():
     test_loader = DataLoader(dataset, batch_size=1)
 
     model = Model(config['model']['input_features'], config['model']['output_features'])
-    print(f"Lets use {torch.cuda.device_count()} GPUs!")
-    model = nn.DataParallel(model)
     model.to(device)
     model.train()
 
