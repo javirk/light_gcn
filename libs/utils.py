@@ -94,7 +94,7 @@ def adjust_learning_rate(p, optimizer, epoch):
             lr = lr * (p['scheduler_kwargs']['lr_decay_rate'] ** steps)
 
     elif p['scheduler'] == 'poly':
-        lambd = pow(1 - (epoch / p['epochs']), 0.9)
+        lambd = pow(1 - (epoch / p['train']['epochs']), 0.9)
         lr = lr * lambd
 
     elif p['scheduler'] == 'cosine':
