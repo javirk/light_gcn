@@ -48,7 +48,9 @@ def main():
 
         print(f'Epoch {epoch}: loss = {running_loss/i}')
         # plot_graph(b_test, out_test, out_file=f'runs/TL_{current_time}/imgs/epoch_{epoch}.png')
-        writer.add_scalar('Train', running_loss / i, epoch)
+        writer.add_scalar('Loss', running_loss / i, epoch)
+        writer.add_scalar('Avg pred', out.mean(), epoch)
+        writer.add_scalar('Std pred', out.std(), epoch)
         plot_mesh_tb(b_test, out_test, writer, 'Train', epoch)
         plot_mesh_tb(b_test, b_test.dist, writer, 'GT', epoch)
 
