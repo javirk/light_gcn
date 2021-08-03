@@ -17,6 +17,7 @@ class PlanarDataset(Dataset):
 
 
     def __getitem__(self, item):
+        item = 0
         data = self.data.clone()  # This is very important!
         o = self.origins[item]
         d = self.directions[item]
