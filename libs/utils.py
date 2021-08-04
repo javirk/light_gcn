@@ -13,7 +13,7 @@ from datetime import datetime
 from torch.utils.tensorboard import SummaryWriter
 
 
-def from_meshio(mesh, mesh_type='2D'):
+def from_meshio(mesh, dimensions=2):
     r"""Converts a :.msh file to a
     :class:`torch_geometric.data.Data` instance.
 
@@ -25,10 +25,11 @@ def from_meshio(mesh, mesh_type='2D'):
         raise ImportError('Package `meshio` could not be found.')
 
     pos = torch.from_numpy(mesh.points).to(torch.float)
-    if mesh_type == '3D':
+    if dimensions == 3:
         tetra = torch.from_numpy(mesh.cells_dict['tetra']).to(torch.long).t().contiguous()
-        return Data(pos=pos, tetra=tetra)
-    elif mesh_type == '2D':
+        face = torch.from_numpy(mesh.cells_dict['triangle']).to(torch.long).t().contiguous()
+        return Data(pos=pos, tetra=tetra, face=face)
+    elif dimensions == 2:
         face = torch.from_numpy(mesh.cells_dict['triangle']).to(torch.long).t().contiguous()
         return Data(pos=pos[:, :2], face=face)
 
@@ -52,16 +53,17 @@ def to_meshio(data):
     return meshio.Mesh(points, cells)
 
 
-def read_mesh(mesh_path, mesh_type):
+def read_mesh(mesh_path, dimensions):
     mesh = meshio.read(
         mesh_path,  # string, os.PathLike, or a buffer/open file
     )
-    data = from_meshio(mesh, mesh_type=mesh_type)
-    if mesh_type == '2D':
+    data = from_meshio(mesh, dimensions=dimensions)
+    if dimensions == 2:
         data = FaceToEdge(remove_faces=False)(data)
+    elif dimensions == 3:
+        data = TetraToEdge(remove_tetras=False)(data)
     else:
-        data = TetraToEdge()(data)
-
+        raise ValueError(f'{dimensions} not supported')
     return data
 
 

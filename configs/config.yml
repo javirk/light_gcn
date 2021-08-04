@@ -1,10 +1,9 @@
-model:
-  input_features: 6
-  output_features: 1
+dimensions: 3
+mesh_file: sphere_coarse.msh
 
 train:
   epochs: 100
-  batch_size: 64
+  batch_size: 32
 
 # Optimizer:
 

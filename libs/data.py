@@ -1,16 +1,14 @@
 import torch
-from torch_geometric.data import Data, Batch, Dataset
+from torch_geometric.data import Dataset
 from libs.utils import read_mesh
 
 
 class PlanarDataset(Dataset):
-    def __init__(self, mesh_path, mesh_type):
+    def __init__(self, mesh_path, dimensions):
         super().__init__()
-        self.data = read_mesh(mesh_path, mesh_type)
+        self.dimensions = dimensions
+        self.data = read_mesh(mesh_path, dimensions)
         self.len_dataset = 10000
-        self.origins = torch.rand((self.len_dataset, 2)) * (-2) + 1  # Range [-1, 1]
-        self.directions = torch.rand((self.len_dataset, 2)) * (-2) + 1
-        self.directions = self.directions / self.directions.norm(dim=1, keepdim=True)
 
     def __len__(self):
         return self.len_dataset
@@ -18,8 +16,9 @@ class PlanarDataset(Dataset):
 
     def __getitem__(self, item):
         data = self.data.clone()  # This is very important!
-        o = self.origins[item]
-        d = self.directions[item]
+        o = torch.rand(self.dimensions) * (-2) + 1  # Range [-1, 1]
+        d = torch.rand(self.dimensions) * (-2) + 1
+        d = d / d.norm()
 
         features = torch.cat([o, d]).unsqueeze(0)
         features = features.repeat(data.num_nodes, 1)
@@ -43,7 +42,5 @@ class PlanarDataset(Dataset):
         pass
 
 if __name__ == '__main__':
-    dataset = PlanarDataset('../meshes/planar_coarse.msh', '2D')
+    dataset = PlanarDataset('../meshes/planar_coarse.msh', 2)
     a = dataset[0]
-    from libs.plots import plot_graph
-    plot_graph(a)

@@ -1,4 +1,3 @@
-import os
 import torch
 import torch.nn as nn
 
@@ -15,13 +14,15 @@ def main():
     writer, device, current_time = prepare_run(root_path, FLAGS.config)
     ckpt_path = root_path.joinpath('ckpts', f'{current_time}.pth')
 
+    input_features = 9 if config['dimensions'] == 3 else 6
+
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
-    dataset = PlanarDataset('meshes/planar_coarse.msh', '2D')
+    dataset = PlanarDataset(f'meshes/{config["mesh_file"]}', config['dimensions'])
     train_loader = DataLoader(dataset, batch_size=config['train']['batch_size'], shuffle=True, num_workers=0)
     test_loader = DataLoader(dataset, batch_size=1)
 
-    model = Model(config['model']['input_features'], config['model']['output_features'])
+    model = Model(input_features, output_features=1)
     model.to(device)
     model.train()
 
@@ -51,8 +52,9 @@ def main():
         writer.add_scalar('Loss', running_loss / i, epoch)
         writer.add_scalar('Avg pred', out.mean(), epoch)
         writer.add_scalar('Std pred', out.std(), epoch)
-        plot_mesh_tb(b_test, out_test, writer, 'Train', epoch)
-        plot_mesh_tb(b_test, b_test.dist, writer, 'GT', epoch)
+        if config['dimensions'] == 2:
+            plot_mesh_tb(b_test, out_test, writer, 'Train', epoch)
+            plot_mesh_tb(b_test, b_test.dist, writer, 'GT', epoch)
 
         ckpt = {'optimizer': opt.state_dict(), 'model': model.state_dict(), 'epoch': epoch + 1}
         torch.save(ckpt, ckpt_path)
