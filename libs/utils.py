@@ -135,3 +135,82 @@ def prepare_run(root_path, config_path):
     copy_file(config_path, f'{tb_path}/config.yml')
     os.makedirs(f'runs/TL_{current_time}/imgs')
     return writer, device, current_time
+
+def trace_ray(o, d, graph):
+    if len(o.shape) == 1:
+        o = o.unsqueeze(0)
+    else:
+        o = o.unsqueeze(1)
+
+    dist_r_c = torch.norm(graph.centroids - o, dim=-1)  # [B x nodes]
+    o_triangle = dist_r_c.argmin(1)
+    triangles = graph.face.permute(1, 0)
+
+    idx_origin_triangle = graph.triangle[o_triangle]
+
+    combs = [[0, 1, 2], [0, 2, 1], [1, 2, 0]]
+    idx_vertex = torch.zeros((o.shape[0], 2))  # Batch size
+    for idx_p1, idx_p2, out in combs:
+        p1 = graph.pos[idx_origin_triangle[:, idx_p1]]
+        p2 = graph.pos[idx_origin_triangle[:, idx_p2]]
+
+        intersection = line_ray_intersection_point(graph.centroids[o_triangle], d, p1, p2)
+
+        if intersection.any():
+            idx_vertex += intersection.unsqueeze(1) * idx_origin_triangle[:, [idx_p1, idx_p2]]
+
+    next_triangle = torch.zeros((o.shape[0]), dtype=torch.long)
+    for i, r in enumerate(idx_vertex):
+        next_triangle[i] = torch.nonzero((triangles == r[0]).any(1) * (triangles == r[1]).any(1) *
+                                         (triangles != idx_origin_triangle[i]).any(1))[0, 0]
+
+    triangles_visited = o_triangle.clone().unsqueeze(1).long()
+    # distances = torch.zeros_like(triangles_visited)
+
+    triangles_visited = torch.cat([triangles_visited, next_triangle.unsqueeze(1)], dim=-1)
+    # distances = torch.cat(
+    #     [distances, torch.norm(centroids[o_triangle] - centroids[next_triangle.long()], dim=-1, keepdim=True)])
+
+    graph.probs_triangle = graph.probs[triangles].mean(axis=1).permute(1, 0)
+
+    vis = evolve(graph, triangles_visited.clone(), d)
+
+    return vis
+
+
+def line_ray_intersection_point(ray_origin, ray_direction, point1, point2):
+    # Ray-Line Segment Intersection Test in 2D
+    # http://bit.ly/1CoxdrG
+    v1 = (ray_origin - point1)[:,:-1]
+    v2 = (point2 - point1)[:,:-1]
+    v3 = np.stack([-np.array(ray_direction[:, 1]), np.array(ray_direction[:, 0])], axis=1)
+    dotprod = np.einsum('ij, ij -> i', v2, v3)
+    t1 = np.cross(v2, v1, axis=1) / dotprod
+    t2 = np.einsum('ij, ij -> i', v1, v3) / dotprod
+    return torch.tensor((t1 >= 0) * (t2 >= 0) * (t2 <= 1))
+
+
+def evolve(graph, visited, ray_direction):
+    while True and visited.shape[-1] < 100:
+        # last_triangle = visited[:, -2]
+        current_triangle = visited[:, -1]
+        current_neigh = graph.neighbours[current_triangle]
+
+        if -1 in current_neigh:
+            break
+
+        y = graph.centroids[current_neigh] - graph.centroids[current_triangle].unsqueeze(1)  # B x Vecinos x Componentes
+        if visited.shape[-1] > 10:
+            momentum_vector = graph.centroids[current_triangle] - graph.centroids[visited[:, -10]]  # B x Componentes
+        else:
+            momentum_vector = ray_direction
+
+        momentum = torch.einsum('bc,bvc->bv', momentum_vector, y) / (
+                    momentum_vector.norm(dim=1) * y.norm(dim=(1, 2))).unsqueeze(1)
+
+        probs_neighbours = torch.gather(graph.probs_triangle, 1, current_neigh) * momentum
+
+        next_triangle = torch.gather(current_neigh, 1, probs_neighbours.argmax(1).unsqueeze(1)).squeeze(1)
+
+        visited = torch.cat([visited, next_triangle.unsqueeze(1)], dim=-1)
+    return visited

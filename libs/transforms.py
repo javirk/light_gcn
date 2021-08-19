@@ -27,3 +27,42 @@ class TetraToEdge(object):
 
     def __repr__(self):
         return '{}()'.format(self.__class__.__name__)
+
+class GetNeighbours2D(object):
+    def __init__(self):
+        pass
+
+    def __call__(self, data):
+        neighbours = torch.empty((data.triangle.shape[0], 3), dtype=torch.long)
+        combs = [[0, 1, 2], [0, 2, 1], [1, 2, 0]]
+        for i_face, face in enumerate(data.triangle):
+            neighbours_triangle = []
+            for i1, i2, out in combs:
+                v1 = face[i1]
+                v2 = face[i2]
+                vout = face[out]
+
+                edge_neighbour = torch.nonzero(
+                    (data.triangle == v1).any(1) * (data.triangle == v2).any(1) * (data.triangle != vout).all(1))[:, 0]
+
+                if len(edge_neighbour) == 0:
+                    edge_neighbour = -1
+                elif len(edge_neighbour) > 1:
+                    raise ValueError('Something is wrong')
+                else:
+                    edge_neighbour = edge_neighbour.item()
+
+                neighbours_triangle.append(edge_neighbour)
+            neighbours[i_face] = torch.tensor(neighbours_triangle, dtype=torch.long)
+        data.neighbours = neighbours
+        return data
+
+class GetCentroids2D(object):
+    def __init__(self):
+        pass
+
+    def __call__(self, data):
+        triangles_coords = data.pos[data.triangle]
+        centroids = torch.sum(triangles_coords, dim=1) / 3
+        data.centroids = centroids
+        return data
