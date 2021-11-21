@@ -35,7 +35,6 @@ class EvolutionModel(nn.Module):
         if n_index == 'circular':
             n_index = - 0.1 * self.graph.pos.norm(dim=1) + 1.1
 
-        self.graph = self.compute_vars(n_index)
         self.n_steps = n_steps
         self.n_samples = n_samples
         self.near = near
@@ -45,8 +44,9 @@ class EvolutionModel(nn.Module):
         self.z_vals = self.near * (1. - t_vals) + self.far * t_vals
 
     def forward(self, r0, m0):
+        assert "graph.n_index" in self.__dict__, 'compute_vars() must be called before trying to evolve.'
+
         N_rays = r0.shape[0]
-        # Maybe evolve and evolve_in_tetrahedron should be inside the class
         evolution = self.evolve(r0, m0)
 
         r_hist = evolution['r_hist']
@@ -62,9 +62,6 @@ class EvolutionModel(nn.Module):
         new_self.z_vals = new_self.z_vals.to(*args, **kwargs)
         new_self.graph = new_self.graph.to(*args, **kwargs)
 
-        new_self.graph.n_index = nn.Parameter(new_self.graph.n_index)  # I don't know, this is terrible but I can't
-        # keep the is_leaf property otherwise
-
         return new_self
 
     def compute_vars(self, n_index):
@@ -75,7 +72,7 @@ class EvolutionModel(nn.Module):
         self.graph.n_index = nn.Parameter(n_index)
 
         coords_vertex_tetra = rearrange(self.graph.pos[self.graph.tetra], 'v t c -> t c v')
-        k = torch.cat((torch.ones((num_tetra, 1, 4)), coords_vertex_tetra), dim=1).inverse()
+        k = torch.cat((torch.ones((num_tetra, 1, 4), device=coords_vertex_tetra.device), coords_vertex_tetra), dim=1).inverse()
 
         ab = torch.bmm(torch.transpose(k, 1, 2), self.graph.n_index[self.graph.tetra].T.unsqueeze(-1))
         a = ab[:, 0, 0]
@@ -83,7 +80,6 @@ class EvolutionModel(nn.Module):
         n = b / b.norm(dim=1, keepdim=True)
 
         self.graph.n = n
-        # graph.k = k  # You don't need it actually
         self.graph.a = a
         self.graph.b = b
 
@@ -92,7 +88,7 @@ class EvolutionModel(nn.Module):
     def evolve_in_tetrahedron(self, tetra_idx, rp, m):
         """ This is where the magic happens. Based on https://academic.oup.com/qjmam/article/65/1/87/1829302"""
         bs = m.shape[0]
-        # k = self.graph.k[tetra_idx]
+
         a = self.graph.a[tetra_idx]
         b = self.graph.b[tetra_idx]
         # p = self.graph.pos[self.graph.tetra[:, tetra_idx]]
@@ -105,8 +101,7 @@ class EvolutionModel(nn.Module):
         q = mn / torch.sqrt(batch_dot(mn, mn).unsqueeze(1))
         nq = torch.cross(n, q)
         mn_dot = batch_dot(m, n).unsqueeze(1)
-        rc = rp - (batch_dot(rp, n) + a / b.norm(dim=1)).unsqueeze(1) * (n -
-                                                                         (mn_dot * nq) / batch_dot(m, nq).unsqueeze(1))
+        rc = rp - (batch_dot(rp, n) + a / b.norm(dim=1)).unsqueeze(1) * (n - (mn_dot * nq) / batch_dot(m, nq).unsqueeze(1))
         R = rc - rp
 
         phiR = torch.zeros((bs, 4), device=R.device)
@@ -215,6 +210,10 @@ if __name__ == '__main__':
     ev.to(device)
     # ev.graph.to(device) # I don't like this
     ev.train()
+
+    n_index = - 0.1 * ev.graph.pos.norm(dim=1) + 1.1
+
+    ev.compute_vars(n_index)
 
     f = ev(r0, m0)
 
