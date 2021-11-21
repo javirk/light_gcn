@@ -1,39 +1,15 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
-from torch_geometric.nn import GCNConv
-from libs.mesh_utils import read_mesh, evolve, compute_vars, sample_rays
+from libs.mesh_utils import read_mesh
 import libs.transforms as t
 from einops import rearrange
-from libs.utils import wrap_to_2pi, batch_dot
-
-
-class Model(nn.Module):
-    def __init__(self, input_features, output_features):
-        super(Model, self).__init__()
-        self.conv1 = GCNConv(input_features, 128)
-        self.conv2 = GCNConv(128, 128)
-        self.conv3 = GCNConv(128, output_features)
-
-    def forward(self, data):
-        x, edge_index = data.x, data.edge_index
-
-        x = self.conv1(x, edge_index)
-        x = F.relu(x)
-        x = self.conv2(x, edge_index)
-        x = F.relu(x)
-        x = F.dropout(x, training=self.training)
-        x = self.conv3(x, edge_index)
-
-        return x
+from libs.utils import wrap_to_2pi, batch_dot, gather_batch
 
 
 class EvolutionModel(nn.Module):
-    def __init__(self, filename, mesh_type, n_steps, n_samples, transforms, n_index='circular', near=0., far=1.):
+    def __init__(self, filename, mesh_type, n_steps, n_samples, transforms, near=0., far=1.):
         super(EvolutionModel, self).__init__()
         self.graph = read_mesh(filename, mesh_type, transforms)
-        if n_index == 'circular':
-            n_index = - 0.1 * self.graph.pos.norm(dim=1) + 1.1
 
         self.n_steps = n_steps
         self.n_samples = n_samples
@@ -43,8 +19,10 @@ class EvolutionModel(nn.Module):
         t_vals = torch.linspace(0.1, 1., steps=self.n_samples)
         self.z_vals = self.near * (1. - t_vals) + self.far * t_vals
 
+        self.computed = False
+
     def forward(self, r0, m0):
-        assert "graph.n_index" in self.__dict__, 'compute_vars() must be called before trying to evolve.'
+        assert self.computed, 'compute_vars() must be called before trying to evolve.'
 
         N_rays = r0.shape[0]
         evolution = self.evolve(r0, m0)
@@ -54,7 +32,29 @@ class EvolutionModel(nn.Module):
         d = evolution['distances']
 
         self.z_vals = self.z_vals.expand([N_rays, self.n_samples]).unsqueeze(-1)
-        final_coords = sample_rays(r_hist, d, self.z_vals)
+        final_coords = self.sample_rays(r_hist, d)
+        return final_coords
+
+    def sample_rays(self, r_hist, distances):
+        tminusd = self.z_vals - distances.unsqueeze(1)
+        tminusd_pos = tminusd.clone()
+        tminusd_neg = tminusd.clone()
+        tminusd_pos[tminusd_pos < 0] = 10
+        tminusd_neg[tminusd_neg > 0] = -10
+
+        idx_top_pos = torch.topk(tminusd_pos, k=1, largest=False, sorted=False)  # Take the smallest
+        idx_top_neg = torch.topk(tminusd_neg, k=1, largest=True, sorted=False)  # Take the largest
+
+        indices = torch.cat([idx_top_pos.indices, idx_top_neg.indices], dim=-1)
+        values = torch.cat([idx_top_pos.values, idx_top_neg.values], dim=-1)
+
+        # idx_top = torch.topk(tminusd, k=2, largest=False, sorted=False)
+        coords = gather_batch(r_hist, indices)
+        m = (coords[:, :, 1] - coords[:, :, 0]) / self.z_vals
+
+        m = m / m.norm(dim=-1, keepdim=True)
+        final_coords = coords[:, :, 0] + values[..., :1].repeat_interleave(3, dim=-1) * m
+
         return final_coords
 
     def to(self, *args, **kwargs):
@@ -82,6 +82,8 @@ class EvolutionModel(nn.Module):
         self.graph.n = n
         self.graph.a = a
         self.graph.b = b
+
+        self.computed = True
 
         return self.graph
 
@@ -139,8 +141,8 @@ class EvolutionModel(nn.Module):
         phiE += phiE * 1 / 100  # This is to make sure that the next point starts inside the next tetrahedron
 
         # New direction and position
-        re = rc - torch.cos(phiE) * R + R.norm(dim=1) * torch.sin(phiE) * m
-        me = torch.cos(phiE) * m + torch.sin(phiE) / R.norm(dim=1) * R
+        re = rc - torch.cos(phiE) * R + R.norm(dim=1, keepdim=True) * torch.sin(phiE) * m
+        me = torch.cos(phiE) * m + torch.sin(phiE) / R.norm(dim=1, keepdim=True) * R
 
         # Face number
         hit_face = faces[idx_face.squeeze()].diag()  # Get the diagonal
@@ -208,7 +210,6 @@ if __name__ == '__main__':
 
     ev = EvolutionModel(filename, mesh_type, n_steps=1, n_samples=N_samples, transforms=tr)
     ev.to(device)
-    # ev.graph.to(device) # I don't like this
     ev.train()
 
     n_index = - 0.1 * ev.graph.pos.norm(dim=1) + 1.1

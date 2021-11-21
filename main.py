@@ -1,40 +1,37 @@
 import torch
-from libs.mesh_utils import read_mesh, evolve, compute_vars, sample_rays
-import libs.transforms as transforms
+import torch.nn as nn
+import libs.transforms as t
+from libs.model import EvolutionModel
 from libs.plots import plot_trajectory
 
-
-# Preparation
-t = [transforms.TetraToEdge(remove_tetras=False), transforms.TetraToNeighbors(), transforms.TetraCoordinates()]
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
 mesh_type = '3D'
 filename = 'meshes/sphere_coarse.msh'
 near = 0
 far = 1.5
 N_samples = 10
-r0 = torch.tensor([[0.8, 0., 0.]])
-m0 = torch.tensor([[-1, 0.1, 0.1]], dtype=torch.float32)
-m0 = m0 / m0.norm(dim=1)
-N_rays = r0.shape[0]
+r0 = torch.tensor([[0.8, 0., 0.], [0.8, 0.2, 0.]], device=device)
+m0 = torch.tensor([[-1, 0.1, 0.1], [-1, 0.1, 0.1]], dtype=torch.float32, device=device)
+m0 = m0 / m0.norm(dim=1, keepdim=True)
+tr = [t.TetraToEdge(remove_tetras=False), t.TetraToNeighbors(), t.TetraCoordinates()]
 
-graph = read_mesh(filename, mesh_type, t)
+ev = EvolutionModel(filename, mesh_type, n_steps=25, n_samples=N_samples, transforms=tr)
+ev.to(device)
+ev.train()
 
-n_index = - 0.1 * graph.pos.norm(dim=1) + 1.1
+n_index = - 0.5 * ev.graph.pos.norm(dim=1) + 1.5
 
-# Evolution
-graph = compute_vars(graph, n_index)
-evolution = evolve(graph, r0, m0, 200)
+ev.compute_vars(n_index)
 
-r_hist = evolution['r_hist']
-m_hist = evolution['m_hist']
-d = evolution['distances']
+final_coords = ev(r0, m0)
 
-# Sampling
-t_vals = torch.linspace(0.1, 1., steps=10)
-z_vals = near * (1. - t_vals) + far * t_vals
-z_vals = z_vals.expand([N_rays, N_samples]).unsqueeze(-1)
-
-final_coords = sample_rays(r_hist, d, z_vals)
+"""Test backpropagation"""
+crit = nn.MSELoss()
+real = torch.randn_like(final_coords)
+loss = crit(final_coords, real)
+loss.backward()
+assert ev.graph.n_index.grad is not None
 
 fig, ax = plot_trajectory(final_coords, b_pos=0)
 fig.show()

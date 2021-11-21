@@ -36,6 +36,7 @@ def plot_mesh_tb(graph_data, fields, writer, label, step):
 
 
 def plot_trajectory(r_hist, m_hist=None, b_pos=0):
+    r_hist = r_hist.detach().cpu().numpy()
     cycol = cycle("bgrcmykw")
 
     fig = plt.figure()
