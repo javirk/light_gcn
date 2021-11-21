@@ -20,9 +20,9 @@ ev = EvolutionModel(filename, mesh_type, n_steps=25, n_samples=N_samples, transf
 ev.to(device)
 ev.train()
 
-n_index = - 0.5 * ev.graph.pos.norm(dim=1) + 1.5
+n_index = - 0.5 * (1 - ev.graph.pos.norm(dim=1)) + 1.5
 
-ev.compute_vars(n_index)
+ev.init_vars(n_index)
 
 final_coords = ev(r0, m0)
 

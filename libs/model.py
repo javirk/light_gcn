@@ -19,10 +19,12 @@ class EvolutionModel(nn.Module):
         t_vals = torch.linspace(0.1, 1., steps=self.n_samples)
         self.z_vals = self.near * (1. - t_vals) + self.far * t_vals
 
-        self.computed = False
+        self.initialized = False
+        self.num_nodes = self.graph.pos.shape[0]
+        self.num_tetra = self.graph.tetra.shape[1]
 
     def forward(self, r0, m0):
-        assert self.computed, 'compute_vars() must be called before trying to evolve.'
+        assert self.initialized, 'init_vars() must be called before trying to evolve.'
 
         N_rays = r0.shape[0]
         evolution = self.evolve(r0, m0)
@@ -64,15 +66,17 @@ class EvolutionModel(nn.Module):
 
         return new_self
 
-    def compute_vars(self, n_index):
-        num_nodes = self.graph.pos.shape[0]
-        num_tetra = self.graph.tetra.shape[1]
-
-        assert n_index.shape[0] == num_nodes, 'n_index must have as many values as the number of nodes'
+    def init_vars(self, n_index):
+        assert n_index.shape[0] == self.num_nodes, 'n_index must have as many values as the number of nodes'
         self.graph.n_index = nn.Parameter(n_index)
+        self.update_vars()
+        self.initialized = True
 
+        return self.graph
+
+    def update_vars(self):
         coords_vertex_tetra = rearrange(self.graph.pos[self.graph.tetra], 'v t c -> t c v')
-        k = torch.cat((torch.ones((num_tetra, 1, 4), device=coords_vertex_tetra.device), coords_vertex_tetra), dim=1).inverse()
+        k = torch.cat((torch.ones((self.num_tetra, 1, 4), device=coords_vertex_tetra.device), coords_vertex_tetra), dim=1).inverse()
 
         ab = torch.bmm(torch.transpose(k, 1, 2), self.graph.n_index[self.graph.tetra].T.unsqueeze(-1))
         a = ab[:, 0, 0]
@@ -82,10 +86,6 @@ class EvolutionModel(nn.Module):
         self.graph.n = n
         self.graph.a = a
         self.graph.b = b
-
-        self.computed = True
-
-        return self.graph
 
     def evolve_in_tetrahedron(self, tetra_idx, rp, m):
         """ This is where the magic happens. Based on https://academic.oup.com/qjmam/article/65/1/87/1829302"""
